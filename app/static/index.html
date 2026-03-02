@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice-Txt Dashboard</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-color: #0f172a;
+        --card-bg: rgba(30, 41, 59, 0.7);
+        --accent-color: #38bdf8;
+        --text-color: #f8fafc;
+        --recording-color: #ef4444;
+      }
+
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .container {
+        width: 90%;
+        max-width: 600px;
+        background: var(--card-bg);
+        backdrop-filter: blur(12px);
+        border-radius: 24px;
+        padding: 32px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        text-align: center;
+      }
+
+      h1 {
+        font-weight: 600;
+        margin-bottom: 8px;
+        font-size: 1.5rem;
+      }
+      p {
+        color: #94a3b8;
+        margin-bottom: 24px;
+        font-size: 0.9rem;
+      }
+
+      .status-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      .mic-icon {
+        width: 80px;
+        height: 80px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: relative;
+        transition: all 0.3s ease;
+      }
+
+      .mic-icon.recording {
+        background: var(--recording-color);
+        box-shadow: 0 0 30px var(--recording-color);
+        animation: pulse 1.5s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 0.8;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      .visualizer {
+        width: 100%;
+        height: 60px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .transcript-log {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 16px;
+        padding: 16px;
+        height: 150px;
+        overflow-y: auto;
+        text-align: left;
+        font-size: 0.9rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .log-item {
+        padding: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        animation: fadeIn 0.3s ease;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .keyboard-hint {
+        margin-top: 24px;
+        font-size: 0.8rem;
+        color: #64748b;
+      }
+
+      kbd {
+        background: #334155;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: white;
+        font-family: inherit;
+      }
+
+      .btn {
+        background: var(--accent-color);
+        color: var(--bg-color);
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-top: 16px;
+        transition: opacity 0.2s;
+      }
+
+      .btn:hover {
+        opacity: 0.9;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Voice-Txt Dashboard</h1>
+      <p id="system-status">Listo para dictar</p>
+
+      <div class="status-container">
+        <div id="mic-indicator" class="mic-icon">
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+          </svg>
+        </div>
+        <div class="visualizer">
+          <canvas id="waveform" width="500" height="60"></canvas>
+        </div>
+      </div>
+
+      <div id="transcript-box" class="transcript-log">
+        <div class="log-item" style="color: #64748b">
+          El historial de transcripciones aparecerá aquí...
+        </div>
+      </div>
+
+      <div class="keyboard-hint">
+        Presiona y mantén <kbd>Ctrl</kbd> + <kbd>Espacio</kbd>
+      </div>
+
+      <button class="btn" onclick="testMic()">Probar Micrófono (5s)</button>
+    </div>
+
+    <script>
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const micIndicator = document.getElementById("mic-indicator");
+      const systemStatus = document.getElementById("system-status");
+      const transcriptBox = document.getElementById("transcript-box");
+      const canvas = document.getElementById("waveform");
+      const ctx = canvas.getContext("2d");
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "status") {
+          systemStatus.innerText = data.message;
+          if (data.recording) {
+            micIndicator.classList.add("recording");
+          } else {
+            micIndicator.classList.remove("recording");
+          }
+        }
+
+        if (data.type === "transcript") {
+          addLog(data.text);
+        }
+
+        if (data.type === "audio_level") {
+          drawWave(data.level);
+        }
+      };
+
+      function addLog(text) {
+        const div = document.createElement("div");
+        div.className = "log-item";
+        div.innerText = `> ${text}`;
+        transcriptBox.prepend(div);
+      }
+
+      function drawWave(level) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#38bdf8";
+        const barWidth = 4;
+        const barCount = 40;
+        for (let i = 0; i < barCount; i++) {
+          const height = Math.random() * level * 50;
+          ctx.fillRect(
+            i * (barWidth + 4) + 100,
+            (canvas.height - height) / 2,
+            barWidth,
+            height,
+          );
+        }
+      }
+
+      function testMic() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ command: "test_mic" }));
+        } else {
+          alert("Conexión con el servidor perdida.");
+        }
+      }
+    </script>
+  </body>
+</html>

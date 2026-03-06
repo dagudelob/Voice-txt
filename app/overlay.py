@@ -16,12 +16,19 @@ class ModernOverlay:
         # Configurar ventana
         self.root.overrideredirect(True) # Quitar bordes de Windows
         self.root.attributes("-topmost", True) # Siempre arriba
-        self.root.attributes("-alpha", 0.95)
-        
         self.ui_scale = 1.0
-        self.default_width = 180
-        self.default_height = 240
+        self.default_width = 130
+        self.default_height = 160
         
+        # Aplicar el ícono de micrófono a la ventana ("Barra de Tareas" Windows)
+        import os
+        ico_path = os.path.join(os.path.dirname(__file__), "icon.ico")
+        if os.path.exists(ico_path):
+            try:
+                self.root.iconbitmap(ico_path)
+            except Exception:
+                pass
+
         # Posicionar ventana vertical arriba/centro o abajo/centro
         self._update_window_geometry()
         
@@ -42,24 +49,24 @@ class ModernOverlay:
         import tkinter as tk 
         
         # ==== TOP CONTROL BAR (Apple Style) ====
-        self.top_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent", height=30)
-        self.top_frame.pack(side="top", fill="x", padx=10, pady=(10, 0))
+        self.top_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent", height=20)
+        self.top_frame.pack(side="top", fill="x", padx=2, pady=(5, 0))
         # Para que los botones se empujen a la izquierda
         self.top_frame.bind("<ButtonPress-1>", self.on_drag_start)
         self.top_frame.bind("<B1-Motion>", self.on_drag_motion)
-        
+
         # Red: Close, Yellow: Minimize, Green: Scale
-        self.close_btn = ctk.CTkButton(self.top_frame, text="", width=14, height=14, corner_radius=7,
+        self.close_btn = ctk.CTkButton(self.top_frame, text="", width=12, height=12, corner_radius=6,
                                        fg_color="#FF5F56", hover_color="#E0443E", command=self.quit)
-        self.close_btn.pack(side="left", padx=(0, 6))
+        self.close_btn.pack(side="left", padx=(2, 4))
         
-        self.min_btn = ctk.CTkButton(self.top_frame, text="", width=14, height=14, corner_radius=7,
+        self.min_btn = ctk.CTkButton(self.top_frame, text="", width=12, height=12, corner_radius=6,
                                      fg_color="#FFBD2E", hover_color="#DEA125", command=self.hide)
-        self.min_btn.pack(side="left", padx=6)
+        self.min_btn.pack(side="left", padx=4)
         
-        self.scale_btn = ctk.CTkButton(self.top_frame, text="", width=14, height=14, corner_radius=7,
+        self.scale_btn = ctk.CTkButton(self.top_frame, text="", width=12, height=12, corner_radius=6,
                                        fg_color="#27C93F", hover_color="#1AAB29", command=self.cycle_ui_scale)
-        self.scale_btn.pack(side="left", padx=6)
+        self.scale_btn.pack(side="left", padx=4)
 
         # ==== MIDDLE FRAME (Big Dynamic Microphone) ====
         self.mid_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
@@ -67,12 +74,11 @@ class ModernOverlay:
         self.mid_frame.bind("<ButtonPress-1>", self.on_drag_start)
         self.mid_frame.bind("<B1-Motion>", self.on_drag_motion)
 
-        # Cargar el micrófono purificado y encogerlo 60% (original 120x150 -> 48x60)
-        # para que coincida exactamente con los 60px de alto de las ondas.
+        # Cargar el micrófono purificado y encogerlo 40% adicional (48x60 -> 29x36)
         base_dir = os.path.dirname(__file__)
-        self.mic_img = ctk.CTkImage(Image.open(os.path.join(base_dir, "mic_active.png")), size=(48, 60))
+        self.mic_img = ctk.CTkImage(Image.open(os.path.join(base_dir, "mic_active.png")), size=(56, 60))
         
-        # Secuencia de onda animada continua (1->8)
+        # Secuencia de onda animada continua reducida 40% (80x60 -> 48x36)
         self.wave_frames = []
         for i in range(8):
             frame_path = os.path.join(base_dir, f"frame_{i}.png")
@@ -82,9 +88,9 @@ class ModernOverlay:
         
         self.current_frame = 0
         
-        # Un solo Label central que intercambiará entre el Micro y las Ondas
+        # Un solo Label central que intercambiará entre el Micro y las Ondas, con menor separación
         self.center_label = ctk.CTkLabel(self.mid_frame, text="", image=self.mic_img)
-        self.center_label.pack(expand=True, pady=10)
+        self.center_label.pack(expand=True, pady=(2, 5))
         self.center_label.bind("<ButtonPress-1>", self.on_drag_start)
         self.center_label.bind("<B1-Motion>", self.on_drag_motion)
         
@@ -97,13 +103,13 @@ class ModernOverlay:
         self._on_model_callback = on_model_change_callback
         self._on_lang_callback = on_language_change_callback
 
-        self.lang_var = ctk.StringVar(value="English (US)")
-        self.model_var = ctk.StringVar(value="Speech GPT v4")
+        self.lang_var = ctk.StringVar(value="Auto Detect")
+        self.model_var = ctk.StringVar(value="Local Model : LM-Studio")
         
         pill_kwargs = {
-            "height": 28, "corner_radius": 14, "border_width": 1, 
+            "height": 22, "corner_radius": 21, "border_width": 3, 
             "fg_color": "transparent", "border_color": "#536173", "hover_color": "#2A2A2D", 
-            "text_color": "#A9B1BD", "font": ("Inter", 11)
+            "text_color": "#A9B1BD", "font": ("Inter", 8)
         }
 
         # Botón Idioma arriba (stacked)
@@ -115,12 +121,12 @@ class ModernOverlay:
         self.model_btn.pack(side="top", fill="x", pady=2)
 
         # Crear menús nativos escondidos en negro/gris
-        self.lang_menu = tk.Menu(self.root, tearoff=0, bg="#1E1E1E", fg="#A9B1BD", activebackground="#2A2A2D", font=("Inter", 11))
+        self.lang_menu = tk.Menu(self.root, tearoff=0, bg="#1E1E1E", fg="#A9B1BD", activebackground="#2A2A2D", font=("Inter", 8))
         for lang in ["Spanish (ES)", "English (US)", "Auto Detect"]:
             self.lang_menu.add_command(label=lang, command=lambda l=lang: self._select_lang(l))
             
-        self.model_menu = tk.Menu(self.root, tearoff=0, bg="#1E1E1E", fg="#A9B1BD", activebackground="#2A2A2D", font=("Inter", 11))
-        for mod in ["Speech GPT v4", "Whisper (Local)"]:
+        self.model_menu = tk.Menu(self.root, tearoff=0, bg="#1E1E1E", fg="#A9B1BD", activebackground="#2A2A2D", font=("Inter", 8))
+        for mod in ["Speech GPT v4", "Local Model : LM-Studio", "Whisper (Local)"]:
             self.model_menu.add_command(label=mod, command=lambda m=mod: self._select_model(m))
         
         # Estado de animación

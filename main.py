@@ -34,12 +34,7 @@ except ImportError as e:
 # Cargar configuración
 load_dotenv()
 
-# Intentar importar el servidor de UI
-try:
-    from app.server import app, start_server
-except ImportError as e:
-    app = None
-    print(f"Aviso: No se pudo cargar el servidor de UI. {e}")
+# Se eliminó la dependencia del dashboard UI por solicitud del usuario.
 
 try:
     from app.overlay import ModernOverlay
@@ -122,13 +117,7 @@ class VoiceToTextApp:
         self.language_setting = language if language != "auto" else None
 
     def send_ui_update(self, msg_type, **kwargs):
-        """Envía datos al dashboard vía la cola de actualizaciones."""
-        if not app: return
-        try:
-            from app.server import ui_updates
-            ui_updates.put({"type": msg_type, **kwargs})
-        except Exception:
-            pass
+        pass # Dashboard removido
 
     def start_recording(self):
         if self.is_recording: return
@@ -309,7 +298,6 @@ class VoiceToTextApp:
             d.text((10, 20), "V-Txt", fill=(255, 255, 255))
         
         menu = pystray.Menu(
-            pystray.MenuItem("Dashboard (vía Web)", lambda: os.system(f"start http://localhost:{self.dashboard_port}")),
             pystray.MenuItem("Cerrar Aplicación", self.quit_app)
         )
         self.icon = pystray.Icon("voice_txt", image, "Voice-txt Active", menu)
@@ -324,13 +312,6 @@ class VoiceToTextApp:
         os._exit(0)
 
     def run(self):
-        # Iniciar servidor de UI en hilo separado
-        if app:
-            threading.Thread(target=start_server, args=(self.dashboard_port,), daemon=True).start()
-            print(f"[UI] Dashboard iniciado en http://localhost:{self.dashboard_port}")
-            # Hilo para escuchar comandos del UI
-            threading.Thread(target=self._ui_command_listener, daemon=True).start()
-
         # Iniciar Listener de teclado en hilo separado
         threading.Thread(target=self._start_standard_listener, daemon=True).start()
         

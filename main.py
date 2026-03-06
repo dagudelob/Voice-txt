@@ -41,6 +41,12 @@ except ImportError as e:
     app = None
     print(f"Aviso: No se pudo cargar el servidor de UI. {e}")
 
+try:
+    from app.overlay import ModernOverlay
+except ImportError as e:
+    ModernOverlay = None
+    print(f"Aviso: No se pudo cargar el ModernOverlay. {e}")
+
 class VoiceToTextApp:
     def __init__(self):
         self.stop_requested = False
@@ -49,13 +55,22 @@ class VoiceToTextApp:
         self.local_base = os.getenv("LOCAL_API_BASE", "http://localhost:11434/v1")
         self.api_key = os.getenv("OPENAI_API_KEY", "sk-local")
         
-        # Cliente para LLM (Corrección) - Local (LM Studio)
+        # Cliente para LLM (Corrección) - Local (LM Studio) u OpenAI
         llm_base = self.local_base if self.use_local else None
         self.llm_client = OpenAI(api_key=self.api_key, base_url=llm_base)
         
-        # Cargar Modelo Whisper Local
-        print("[INIT] Cargando modelo Whisper (esto puede tardar la primera vez)...")
-        self.whisper_model = whisper.load_model("base") # "base" es rápido y preciso
+        # Opciones Groq
+        self.use_groq_stt = os.getenv("USE_GROQ_STT", "false").lower() == "true"
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "")
+        if self.use_groq_stt and self.groq_api_key:
+            print("[INIT] Inicializando cliente Groq para STT...")
+            self.groq_client = OpenAI(api_key=self.groq_api_key, base_url="https://api.groq.com/openai/v1")
+            self.whisper_model = None
+        else:
+            self.groq_client = None
+            # Cargar Modelo Whisper Local
+            print("[INIT] Cargando modelo Whisper (esto puede tardar la primera vez)...")
+            self.whisper_model = whisper.load_model("base") # "base" es rápido y preciso
         
         # Hotkey: Por defecto ctrl_l+space
         self.hotkey_str = os.getenv("HOTKEY", "<ctrl>+<space>")
@@ -72,7 +87,7 @@ class VoiceToTextApp:
         self.format = pyaudio.paInt16
         self.channels = 1
         self.rate = 44100
-        self.chunk = 1024
+        self.chunk = 1024   
         self.p_audio = pyaudio.PyAudio()
         self._list_audio_devices()
         
@@ -90,6 +105,22 @@ class VoiceToTextApp:
         if count == 0:
             print("  ! ADVERTENCIA: No se detectaron dispositivos de audio.")
 
+    def on_model_change(self, model_name):
+        print(f"[UI] Modelo cambiado a: {model_name}")
+        if "Groq" in model_name:
+            self.use_groq_stt = True
+            if not self.groq_client and self.groq_api_key:
+                self.groq_client = OpenAI(api_key=self.groq_api_key, base_url="https://api.groq.com/openai/v1")
+        else:
+            self.use_groq_stt = False
+            if not self.whisper_model:
+                print("[INIT] Cargando modelo Whisper (esto puede tardar la primera vez)...")
+                self.whisper_model = whisper.load_model("base")
+
+    def on_language_change(self, language):
+        print(f"[UI] Idioma cambiado a: {language}")
+        self.language_setting = language if language != "auto" else None
+
     def send_ui_update(self, msg_type, **kwargs):
         """Envía datos al dashboard vía la cola de actualizaciones."""
         if not app: return
@@ -103,6 +134,9 @@ class VoiceToTextApp:
         if self.is_recording: return
         self.is_recording = True
         self.audio_frames = []
+        if hasattr(self, 'overlay') and self.overlay:
+            self.overlay.set_recording_state(True)
+            
         threading.Thread(target=self._record_thread, daemon=True).start()
         print(f"\n[REC] Grabando ({self.hotkey_str})...")
         self.send_ui_update("status", message="Grabando...", recording=True)
@@ -110,6 +144,9 @@ class VoiceToTextApp:
     def stop_recording(self):
         if not self.is_recording: return
         self.is_recording = False
+        if hasattr(self, 'overlay') and self.overlay:
+            self.overlay.set_recording_state(False)
+            
         print("[PROCESS] Procesando audio...")
         self.send_ui_update("status", message="Procesando...", recording=False)
         self._save_audio()
@@ -136,6 +173,13 @@ class VoiceToTextApp:
                 # Calcular nivel de audio para el visualizador
                 audio_data = np.frombuffer(data, dtype=np.int16)
                 level = np.abs(audio_data).mean() / 1000  # Normalizado simple
+                
+                if hasattr(self, 'overlay') and self.overlay:
+                    # Enviar el nivel al overlay
+                    # En tkinter, modificar UI desde otro thread aveces causa bugs, 
+                    # pero `after` es seguro. Lo empaquetamos:
+                    self.overlay.root.after(0, self.overlay.update_audio_level, level / 50.0) # Normalizar un poco más para animación
+
                 if len(self.audio_frames) % 5 == 0: # Reducir spam de WS
                     self.send_ui_update("audio_level", level=float(level))
 
@@ -169,9 +213,24 @@ class VoiceToTextApp:
 
     def _transcript_audio(self):
         try:
-            # Transcripción local con Whisper forzada a español
-            result = self.whisper_model.transcribe(self.recording_path, fp16=False, language="es")
-            return result["text"].strip()
+            lang_param = getattr(self, 'language_setting', "es")
+            if self.use_groq_stt and self.groq_client:
+                # Transcripción rápida con Groq
+                with open(self.recording_path, "rb") as audio_file:
+                    kwargs = {
+                        "file": audio_file,
+                        "model": "whisper-large-v3-turbo",
+                        "response_format": "text"
+                    }
+                    if lang_param: kwargs["language"] = lang_param
+                    result = self.groq_client.audio.transcriptions.create(**kwargs)
+                return result.strip()
+            else:
+                # Transcripción local con Whisper
+                kwargs = {"fp16": False}
+                if lang_param: kwargs["language"] = lang_param
+                result = self.whisper_model.transcribe(self.recording_path, **kwargs)
+                return result["text"].strip()
         except Exception as e:
             print(f"STT Error: {e}")
             return None
@@ -275,10 +334,19 @@ class VoiceToTextApp:
         # Iniciar Listener de teclado en hilo separado
         threading.Thread(target=self._start_standard_listener, daemon=True).start()
         
+        # Pystray no le gusta correr en hilos secundarios en Windows a veces, 
+        # pero para que funcione CustomTkinter, el main thread debe pertenecerle a Tkinter.
+        threading.Thread(target=self._setup_tray, daemon=True).start()
+        
         print(f"Listo. Hotkey: {self.hotkey_str}")
         
-        # El hilo principal se queda con el Tray Icon (bloqueante)
-        self._setup_tray()
+        # Iniciar y bloquear el hilo principal con ModernOverlay
+        if ModernOverlay:
+            self.overlay = ModernOverlay(self.on_model_change, self.on_language_change)
+            self.overlay.start()
+        else:
+            # Si fallo import, mantener vivo
+            while True: time.sleep(1)
 
     def _ui_command_listener(self):
         """Escucha comandos que vienen desde el WebSocket del Dashboard."""
@@ -324,6 +392,9 @@ class VoiceToTextApp:
                 is_match = all(k in current_keys for k in target_keys)
                 
                 if is_match and not self.is_recording:
+                    # Al iniciar la grabación, main.py llama a self.start_recording(), 
+                    # el cual llama a self.overlay.set_recording_state(True),
+                    # y este ahora internamente llama a self.wake_up().
                     self.start_recording()
             except Exception as e:
                 pass

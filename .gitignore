@@ -5,7 +5,10 @@ build/
 dist/
 wheels/
 *.egg-info
-
 # Virtual environments
 .venv
 .env
+.env.local
+# Media & Temporary files
+*.wav
+temp_recording.wav
